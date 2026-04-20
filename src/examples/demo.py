@@ -23,17 +23,17 @@ MAX_SEED = np.iinfo(np.int32).max
 MAX_IMAGE_SIZE = 1440
 
 NUM_GPUS_TO_USE = int(os.environ.get("NUM_GPUS_TO_USE", torch.cuda.device_count()))  
-TASK_QUEUE_SIZE = int(os.environ.get("TASK_QUEUE_SIZE", 100))  
-TASK_TIMEOUT = int(os.environ.get("TASK_TIMEOUT", 300))  
+Task_QUEUE_SIZE = int(os.environ.get("Task_QUEUE_SIZE", 100))  
+Task_TIMEOUT = int(os.environ.get("Task_TIMEOUT", 300))  
 
-print(f"Config: Using {NUM_GPUS_TO_USE} GPUs, queue size {TASK_QUEUE_SIZE}, timeout {TASK_TIMEOUT} seconds")
+print(f"Config: Using {NUM_GPUS_TO_USE} GPUs, queue size {Task_QUEUE_SIZE}, timeout {Task_TIMEOUT} seconds")
 
 
 class GPUWorker:
-    def __init__(self, gpu_id, model_repo_id, task_queue, result_queue, stop_event):
+    def __init__(self, gpu_id, model_repo_id, Task_queue, result_queue, stop_event):
         self.gpu_id = gpu_id
         self.model_repo_id = model_repo_id
-        self.task_queue = task_queue
+        self.Task_queue = Task_queue
         self.result_queue = result_queue
         self.stop_event = stop_event
         self.device = f"cuda:{gpu_id}"
@@ -56,18 +56,18 @@ class GPUWorker:
             print(f"GPU {self.gpu_id} model initialization failed: {e}")
             return False
     
-    def process_task(self, task):
-        """Process a single task"""
+    def process_Task(self, Task):
+        """Process a single Task"""
         try:
-            task_id = task['task_id']
-            prompt = task['prompt']
-            negative_prompt = task['negative_prompt']
-            seed = task['seed']
-            width = task['width']
-            height = task['height']
-            guidance_scale = task['guidance_scale']
-            num_inference_steps = task['num_inference_steps']
-            progress_callback = task['progress_callback']
+            Task_id = Task['Task_id']
+            prompt = Task['prompt']
+            negative_prompt = Task['negative_prompt']
+            seed = Task['seed']
+            width = Task['width']
+            height = Task['height']
+            guidance_scale = Task['guidance_scale']
+            num_inference_steps = Task['num_inference_steps']
+            progress_callback = Task['progress_callback']
             
             def step_callback(pipe, i, t, callback_kwargs):
                 progress_callback(0.2 + i / num_inference_steps * 0.8, desc="GPU processing...")
@@ -88,14 +88,14 @@ class GPUWorker:
                 ).images[0]
             
             return {
-                'task_id': task_id,
+                'Task_id': Task_id,
                 'image': image,
                 'success': True,
                 'gpu_id': self.gpu_id
             }
         except Exception as e:
             return {
-                'task_id': task_id,
+                'Task_id': Task_id,
                 'success': False,
                 'error': str(e),
                 'gpu_id': self.gpu_id
@@ -110,13 +110,13 @@ class GPUWorker:
         
         while not self.stop_event.is_set():
             try:
-                # Get task from the task queue, set timeout to check stop event
-                task = self.task_queue.get(timeout=1)
-                if task is None:  # Poison pill, exit signal
+                # Get Task from the Task queue, set timeout to check stop event
+                Task = self.Task_queue.get(timeout=1)
+                if Task is None:  # Poison pill, exit signal
                     break
                 
-                # Process the task
-                result = self.process_task(task)
+                # Process the Task
+                result = self.process_Task(Task)
                 
                 # Put the result into the result queue
                 self.result_queue.put(result)
@@ -130,31 +130,31 @@ class GPUWorker:
         print(f"GPU {self.gpu_id} worker stopping")
 
 # Global GPU worker function for spawn mode
-def gpu_worker_process(gpu_id, model_repo_id, task_queue, result_queue, stop_event):
-    worker = GPUWorker(gpu_id, model_repo_id, task_queue, result_queue, stop_event)
+def gpu_worker_process(gpu_id, model_repo_id, Task_queue, result_queue, stop_event):
+    worker = GPUWorker(gpu_id, model_repo_id, Task_queue, result_queue, stop_event)
     worker.run()
 
 # Multi-GPU Manager Class
 class MultiGPUManager:
-    def __init__(self, model_repo_id, num_gpus=None, task_queue_size=100):
+    def __init__(self, model_repo_id, num_gpus=None, Task_queue_size=100):
         self.model_repo_id = model_repo_id
         self.num_gpus = num_gpus or torch.cuda.device_count()
-        self.task_queue = Queue(maxsize=task_queue_size)  
+        self.Task_queue = Queue(maxsize=Task_queue_size)  
         self.result_queue = Queue()  
         self.stop_event = Event()
         self.workers = []
         self.worker_processes = []
-        self.task_counter = 0
-        self.pending_tasks = {}  
+        self.Task_counter = 0
+        self.pending_Tasks = {}  
         
-        print(f"Initializing Multi-GPU Manager with {self.num_gpus} GPUs, queue size {task_queue_size}")
+        print(f"Initializing Multi-GPU Manager with {self.num_gpus} GPUs, queue size {Task_queue_size}")
         
     def start_workers(self):
         """Start all GPU workers"""
         for gpu_id in range(self.num_gpus):
             # Use global function instead of instance method to ensure proper operation in spawn mode
             process = Process(target=gpu_worker_process, 
-                            args=(gpu_id, self.model_repo_id, self.task_queue, 
+                            args=(gpu_id, self.model_repo_id, self.Task_queue, 
                                   self.result_queue, self.stop_event))
             process.start()
             
@@ -172,12 +172,12 @@ class MultiGPUManager:
         while not self.stop_event.is_set():
             try:
                 result = self.result_queue.get(timeout=1)
-                task_id = result['task_id']
+                Task_id = result['Task_id']
                 
-                if task_id in self.pending_tasks:
-                    # Pass the result to the waiting task
-                    self.pending_tasks[task_id]['result'] = result
-                    self.pending_tasks[task_id]['event'].set()
+                if Task_id in self.pending_Tasks:
+                    # Pass the result to the waiting Task
+                    self.pending_Tasks[Task_id]['result'] = result
+                    self.pending_Tasks[Task_id]['event'].set()
                 
             except queue.Empty:
                 continue
@@ -185,20 +185,20 @@ class MultiGPUManager:
                 print(f"Result processing thread exception: {e}")
                 continue
     
-    def submit_task(self, prompt, negative_prompt="", seed=42, width=1664, height=928, 
+    def submit_Task(self, prompt, negative_prompt="", seed=42, width=1664, height=928, 
                    guidance_scale=4, num_inference_steps=50, timeout=300):
-        """Submit task and wait for result"""
-        return self.submit_task_with_progress(prompt, negative_prompt, seed, width, height, 
+        """Submit Task and wait for result"""
+        return self.submit_Task_with_progress(prompt, negative_prompt, seed, width, height, 
                                             guidance_scale, num_inference_steps, timeout, None)
     
-    def submit_task_with_progress(self, prompt, negative_prompt="", seed=42, width=1664, height=928, 
+    def submit_Task_with_progress(self, prompt, negative_prompt="", seed=42, width=1664, height=928, 
                                  guidance_scale=4, num_inference_steps=50, timeout=300, progress_callback=None):
-        """Submit task and wait for result, with progress callback support"""
-        task_id = f"task_{self.task_counter}_{time.time()}"
-        self.task_counter += 1
+        """Submit Task and wait for result, with progress callback support"""
+        Task_id = f"Task_{self.Task_counter}_{time.time()}"
+        self.Task_counter += 1
         
-        task = {
-            'task_id': task_id,
+        Task = {
+            'Task_id': Task_id,
             'prompt': prompt,
             'negative_prompt': negative_prompt,
             'seed': seed,
@@ -211,15 +211,15 @@ class MultiGPUManager:
         
         # Create waiting event
         result_event = threading.Event()
-        self.pending_tasks[task_id] = {
+        self.pending_Tasks[Task_id] = {
             'event': result_event,
             'result': None,
             'submitted_time': time.time()
         }
         
         try:
-            # Put task into queue
-            self.task_queue.put(task, timeout=10)
+            # Put Task into queue
+            self.Task_queue.put(Task, timeout=10)
             
             if progress_callback:
                 progress_callback(0.2, desc="Task submitted, waiting for GPU processing...")
@@ -238,30 +238,30 @@ class MultiGPUManager:
                     
                 if time.time() - start_time > timeout:
                     # Timeout
-                    del self.pending_tasks[task_id]
+                    del self.pending_Tasks[Task_id]
                     return {'success': False, 'error': 'Task timeout'}
             
             if progress_callback:
                 progress_callback(0.8, desc="GPU processing complete...")
             
-            result = self.pending_tasks[task_id]['result']
-            del self.pending_tasks[task_id]
+            result = self.pending_Tasks[Task_id]['result']
+            del self.pending_Tasks[Task_id]
             return result
                 
         except queue.Full:
-            del self.pending_tasks[task_id]
+            del self.pending_Tasks[Task_id]
             return {'success': False, 'error': 'Task queue is full'}
         except Exception as e:
-            if task_id in self.pending_tasks:
-                del self.pending_tasks[task_id]
+            if Task_id in self.pending_Tasks:
+                del self.pending_Tasks[Task_id]
             return {'success': False, 'error': str(e)}
     
     def get_queue_status(self):
         """Get queue status"""
         return {
-            'task_queue_size': self.task_queue.qsize(),
+            'Task_queue_size': self.Task_queue.qsize(),
             'result_queue_size': self.result_queue.qsize(),
-            'pending_tasks': len(self.pending_tasks),
+            'pending_Tasks': len(self.pending_Tasks),
             'active_workers': len(self.worker_processes)
         }
     
@@ -273,7 +273,7 @@ class MultiGPUManager:
         # Send stop signal to each worker
         for _ in range(self.num_gpus):
             try:
-                self.task_queue.put(None, timeout=1)
+                self.Task_queue.put(None, timeout=1)
             except queue.Full:
                 pass
         
@@ -300,7 +300,7 @@ def initialize_gpu_manager():
             gpu_manager = MultiGPUManager(
                 model_repo_id, 
                 num_gpus=NUM_GPUS_TO_USE,
-                task_queue_size=TASK_QUEUE_SIZE
+                Task_queue_size=Task_QUEUE_SIZE
             )
             gpu_manager.start_workers()
             print("GPU Manager initialized successfully")
@@ -348,7 +348,7 @@ def infer(
         
         # Return error if initialization fails
         if gpu_manager is None:
-            print("GPU manager initialization failed, unable to process task")
+            print("GPU manager initialization failed, unable to process Task")
             from PIL import Image
             error_image = Image.new('RGB', (512, 512), color='gray')
             return error_image, seed
@@ -364,11 +364,11 @@ def infer(
     prompt = rewrite(prompt)
     print(f"Prompt: {prompt}, original_prompt: {original_prompt}")
 
-    # Submit task to queue
-    progress(0.3, desc="Submitting task to GPU queue...")
+    # Submit Task to queue
+    progress(0.3, desc="Submitting Task to GPU queue...")
     
-    # Submit task using global GPU manager with progress tracking
-    result = gpu_manager.submit_task_with_progress(
+    # Submit Task using global GPU manager with progress tracking
+    result = gpu_manager.submit_Task_with_progress(
         prompt=prompt,
         negative_prompt=negative_prompt,
         seed=seed,
@@ -376,7 +376,7 @@ def infer(
         height=height,
         guidance_scale=guidance_scale,
         num_inference_steps=num_inference_steps,
-        timeout=TASK_TIMEOUT,
+        timeout=Task_TIMEOUT,
         progress_callback=progress,
     )
 
@@ -403,9 +403,9 @@ def get_system_status():
         return f"""
         ## System Status
         - Active Workers: {status['active_workers']}
-        - Task Queue Size: {status['task_queue_size']}
+        - Task Queue Size: {status['Task_queue_size']}
         - Result Queue Size: {status['result_queue_size']}
-        - Pending Tasks: {status['pending_tasks']}
+        - Pending Tasks: {status['pending_Tasks']}
         - Total GPUs: {gpu_manager.num_gpus}
         """
     else:
